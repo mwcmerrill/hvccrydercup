@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Draft Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<!-- SheetJS reads the uploaded workbook entirely in the browser; nothing is sent anywhere -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#E9EFEA; --surface:#FFFFFF; --surface-2:#F4F7F4; --ink:#14231B; --muted:#5A6B61; --line:#CCD8CF;
+  --fairway:#1F4D3A; --fairway-ink:#FFFFFF;
+  --mine:#1E3A8A; --mine-soft:#DCE4F7; --taken:#7A8580; --flag:#B68A2C; --warn:#B3262E;
+  --display:"Barlow Condensed","Arial Narrow","Roboto Condensed",sans-serif;
+  --body:"Source Sans 3","Segoe UI",system-ui,-apple-system,sans-serif;
+  color-scheme:light; box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1A14; --surface:#16241C; --surface-2:#1B2C22; --ink:#E6EFE9; --muted:#9DB0A4; --line:#2C4135;
+    --fairway:#2F7356; --mine:#8EAEF5; --mine-soft:#1C2A4D; --taken:#7F8E86; --flag:#D9AE52; --warn:#F07A80; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1A14; --surface:#16241C; --surface-2:#1B2C22; --ink:#E6EFE9; --muted:#9DB0A4; --line:#2C4135;
+  --fairway:#2F7356; --mine:#8EAEF5; --mine-soft:#1C2A4D; --taken:#7F8E86; --flag:#D9AE52; --warn:#F07A80; color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--body)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--fairway)}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--flag);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1100px;margin:0 auto;padding:16px 16px 48px}
+
+.mast{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--fairway);color:var(--fairway-ink)}
+.mast-in{max-width:1100px;margin:0 auto;padding:14px 16px 0}
+.mast-top{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:flex-end;justify-content:space-between}
+.mast h1{font:700 clamp(26px,4vw,36px)/1 var(--display);margin:0}
+.tally{display:flex;gap:18px;font-size:14px}
+.tally b{display:block;font:700 30px/1 var(--display)}
+.tabs{display:flex;gap:4px;margin-top:12px}
+.tabs button{border:0;background:transparent;color:var(--fairway-ink);opacity:.75;padding:8px 14px;border-radius:8px 8px 0 0;cursor:pointer;font-weight:600;min-height:40px}
+.tabs button[aria-selected="true"]{background:var(--bg);color:var(--ink);opacity:1}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+.panel h2{font:700 24px/1.1 var(--display);margin:0 0 4px}
+.hint{color:var(--muted);font-size:14px;margin:0 0 12px}
+.stack{display:grid;gap:16px}
+.drop{display:block;border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;cursor:pointer;background:var(--surface-2)}
+.drop.over{border-color:var(--fairway)}
+.drop strong{display:block;font-size:17px}
+.drop span{color:var(--muted);font-size:14px}
+.drop input{position:absolute;width:1px;height:1px;opacity:0}
+.err{color:var(--warn);font-weight:600}
+input[type=search],select{background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-height:40px;width:100%}
+.btn{border:1px solid var(--line);background:var(--surface-2);border-radius:6px;padding:8px 14px;cursor:pointer;min-height:40px;font-weight:600}
+.btn:hover{border-color:var(--muted)}
+.btn.warn{border-color:var(--warn);color:var(--warn)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:10px}
+.toolbar .grow{flex:1 1 220px}
+.toolbar label{font-weight:600;font-size:14px;display:block;margin-bottom:4px}
+
+/* Ranking table */
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th{font-weight:600;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:13px}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.r,th.r{text-align:right}
+tr.off td:not(:first-child){opacity:.45}
+.rkin{width:58px;min-height:34px;padding:4px 6px;text-align:right;background:var(--surface-2);border:1px solid var(--line);border-radius:6px}
+.mv{border:1px solid var(--line);background:var(--surface-2);border-radius:4px;width:32px;height:32px;cursor:pointer;line-height:1}
+.tee{display:inline-block;font-size:13px;white-space:nowrap}
+.tee::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;border:1px solid var(--muted);background:var(--tee,#999)}
+.state{font-size:13px;font-weight:600}
+.state.mine{color:var(--mine)} .state.taken{color:var(--taken)}
+
+/* Draft day */
+.room{display:grid;gap:16px;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:start}
+@media (max-width:900px){.room{grid-template-columns:1fr}}
+.next{border-left:6px solid var(--flag);background:var(--surface-2);border-radius:8px;padding:10px 14px;margin-bottom:12px}
+.next small{color:var(--muted)}
+.next strong{display:block;font:700 28px/1.1 var(--display)}
+.avail{list-style:none;margin:0;padding:0}
+.avail li{display:grid;grid-template-columns:34px minmax(0,1fr) 52px auto;gap:10px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--line)}
+.avail .rk{font:600 18px/1 var(--display);color:var(--muted);text-align:right}
+.avail .nm{font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.avail .sub{font-size:13px;color:var(--muted)}
+.avail .ix{font:700 22px/1 var(--display);text-align:right}
+.pickbtns{display:flex;gap:6px}
+.b-mine{background:var(--mine);color:#fff;border:0;border-radius:6px;padding:8px 12px;min-height:40px;font-weight:700;cursor:pointer}
+.b-taken{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px 12px;min-height:40px;font-weight:600;cursor:pointer}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .b-mine{color:#0F1A14}}
+:root[data-theme="dark"] .b-mine{color:#0F1A14}
+@media (max-width:480px){.avail li{grid-template-columns:28px minmax(0,1fr) 44px}.pickbtns{grid-column:2/-1}}
+.team{background:var(--mine-soft);border-top:6px solid var(--mine);border-radius:10px;padding:14px}
+.team h2{font:700 24px/1.1 var(--display);margin:0 0 4px;color:var(--mine)}
+.plist{list-style:none;margin:0;padding:0;font-size:15px}
+.plist li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
+.plist li:last-child{border-bottom:0}
+.plist small{color:var(--muted)}
+.x{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;text-decoration:underline;min-height:32px}
+.empty{color:var(--muted);font-size:14px;margin:0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* Groups */
+.gsec{border:1px solid var(--line);border-radius:10px;margin-top:14px;overflow:hidden}
+.ghead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.ghead h3{margin:0;font:700 22px/1.1 var(--display)}
+.ghead span{color:var(--muted);font-size:14px}
+.gtag{display:inline-block;font:700 12px/1 var(--body);background:var(--fairway);color:var(--fairway-ink);border-radius:4px;padding:3px 6px;margin-right:6px;vertical-align:middle}
+td select.gsel{width:auto;min-height:32px;padding:4px 6px}
+.addform{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:8px;align-items:end;margin-top:8px}
+@media (max-width:760px){.addform{grid-template-columns:1fr 1fr}}
+.addform label{font-size:13px;font-weight:600;display:block}
+.addform input,.inline-num{background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-height:40px;width:100%}
+.inline-num{width:70px}
+.bestgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px}
+.bestgrid .next{margin:0}
+.bestgrid .next strong{font-size:21px}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-bottom:8px}
+.seg button{border:0;background:var(--surface-2);padding:6px 12px;cursor:pointer;min-height:38px}
+.seg button[aria-pressed="true"]{background:var(--fairway);color:var(--fairway-ink)}
+.seg button+button{border-left:1px solid var(--line)}
+details.tools summary{cursor:pointer;font-weight:600;margin:6px 0}
+</style>
+</head>
+<body>
+<header class="mast" id="mast"></header>
+<main class="wrap" id="app"></main>
+<div class="sr" aria-live="polite" id="live"></div>
+<script>
+// Club scorecard values (not player data); replaced by the workbook's Tees sheet when present.
+const DEFAULT_TEES = {
+  "Orange":{fs:123,fr:35.0,fp:35,bs:127,br:36.3,bp:36}, "Blue":{fs:122,fr:34.6,fp:35,bs:127,br:35.5,bp:36},
+  "Blue/Black":{fs:118,fr:34.2,fp:35,bs:123,br:34.3,bp:36}, "Black":{fs:116,fr:33.6,fp:35,bs:119,br:33.4,bp:36},
+  "White":{fs:113,fr:32.5,fp:35,bs:118,br:33.1,bp:36}
+};
+const SWATCH = {orange:"#E8792B",blue:"#2B5BD7",black:"#222",white:"#FFF","blue/black":"linear-gradient(90deg,#2B5BD7 50%,#222 50%)"};
+const KEY = "my-golf-draft-v1";
+// Everything is stored only in this browser (localStorage).
+function fresh(){ return {tab:"rank", source:null, players:[], tees:DEFAULT_TEES, order:[], log:[], groupSize:12, gf:0}; }
+function load(){ try{ const s = JSON.parse(localStorage.getItem(KEY)); return s && s.players ? s : null; }catch(e){ return null; } }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+let S = load() || fresh(), importError = "", confirmClear = false, confirmReset = false, confirmRegroup = false, q = "";
+if (!S.groupSize) S.groupSize = 12;
+if (S.gf == null) S.gf = 0;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nm = p => (p.first + " " + p.last).trim();
+const roundX = x => Math.sign(x) * Math.round(Math.abs(x) + 1e-9); // Excel ROUND
+const fmtIdx = v => v == null ? "–" : (v < 0 ? "+" + Math.abs(v).toFixed(1) : v.toFixed(1));
+const fmtHc = v => v == null ? "–" : (v < 0 ? "+" + Math.abs(v) : String(v));
+const byId = id => S.players.find(p => p.id === id);
+function teeFor(p){ const k = Object.keys(S.tees).find(k => k.toLowerCase() === String(p.tee||"").toLowerCase()); return k ? S.tees[k] : null; }
+function hcp(p){ const t = teeFor(p); if (!t || p.index == null) return {f:null,b:null};
+  return {f:roundX(p.index/2*t.fs/113+t.fr-t.fp), b:roundX(p.index/2*t.bs/113+t.br-t.bp)}; }
+const teeChip = t => `<span class="tee" style="--tee:${SWATCH[String(t||"").toLowerCase()]||"#999"}">${esc(t||"–")}</span>`;
+const byIdx = (a,b) => (a.index ?? 999)-(b.index ?? 999) || a.last.localeCompare(b.last) || a.first.localeCompare(b.first);
+
+// ---------- Groups: playing golfers sorted by index, split into blocks of groupSize (12 → four groups of 12 for 48)
+function regroup(){
+  const playing = S.players.filter(p => p.playing).sort(byIdx);
+  playing.forEach((p,i) => p.group = Math.floor(i / S.groupSize) + 1);
+  S.players.filter(p => !p.playing).forEach(p => { if (!p.group) p.group = 1; });
+  S.order = S.players.slice().sort((a,b) => a.group - b.group || byIdx(a,b)).map(p => p.id);
+}
+if (S.players.length && S.players.some(p => !p.group)) { regroup(); save(); }
+const groupCount = () => Math.max(1, ...S.players.map(p => p.group || 1), Math.ceil(S.players.filter(p=>p.playing).length / S.groupSize));
+const groupList = () => Array.from({length:groupCount()}, (_,i) => i+1);
+
+// My ranking = position in S.order among playing golfers of the same group
+const ordered = () => S.order.map(byId).filter(Boolean);
+const active = () => ordered().filter(p => p.playing);
+const inGroup = g => active().filter(p => p.group === g);
+const myRank = () => { const m = new Map(); groupList().forEach(g => inGroup(g).forEach((p,i) => m.set(p.id, i+1))); return m; };
+const mine = () => active().filter(p => p.status === "mine");
+const taken = () => active().filter(p => p.status === "taken");
+const avail = () => active().filter(p => !p.status);
+function avgIdx(list){ const l = list.filter(p => p.index != null); return l.length ? l.reduce((s,p)=>s+p.index,0)/l.length : null; }
+
+// ---------- Import
+const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g,"");
+function col(r, names){ for (const k of Object.keys(r)) if (names.includes(norm(k))) return r[k]; }
+const num = v => { if (v === "" || v == null) return null; const n = Number(String(v).trim().replace(/^\+/,"-")); return isFinite(n) ? n : null; };
+async function importFile(file){
+  importError = "";
+  try{
+    if (typeof XLSX === "undefined") throw new Error("The spreadsheet reader didn’t load. Check your connection and reload.");
+    const wb = XLSX.read(await file.arrayBuffer(), {type:"array"});
+    const sn = wb.SheetNames.find(n => norm(n) === "players") || wb.SheetNames[0];
+    const players = [];
+    XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:""}).forEach((r,i) => {
+      let first = col(r,["firstname","first"]), last = col(r,["lastname","last","surname"]);
+      if (first === undefined && last === undefined){
+        const parts = String(col(r,["name","golfer","player"]) ?? "").trim().split(/\s+/);
+        last = parts.length > 1 ? parts.pop() : ""; first = parts.join(" ");
+      }
+      first = String(first ?? "").trim(); last = String(last ?? "").trim();
+      if (!first && !last) return;
+      const id = col(r,["playerid","id"]);
+      players.push({id:String(id !== undefined && id !== "" ? id : "row"+(i+2)), first, last,
+        index:num(col(r,["handicapindex","index","hcpindex","handicap"])),
+        tee:String(col(r,["teebox","tee","tees"]) ?? "").trim(),
+        rank:num(col(r,["rankingoptional","ranking","rank"])),
+        sheetGroup:num(col(r,["group","flight","pot","tier"])), playing:true, status:null});
+    });
+    if (!players.length) throw new Error("No golfers found. The Players sheet needs First Name and Last Name columns.");
+    let tees = DEFAULT_TEES;
+    const ts = wb.SheetNames.find(n => norm(n) === "tees");
+    if (ts){ const t = {};
+      XLSX.utils.sheet_to_json(wb.Sheets[ts], {defval:""}).forEach(r => {
+        const n = String(col(r,["tee","teebox"]) ?? "").trim(), v = k => num(col(r,[k]));
+        const row = {fs:v("frontslope"),fr:v("frontrating"),fp:v("frontpar"),bs:v("backslope"),br:v("backrating"),bp:v("backpar")};
+        if (n && Object.values(row).every(x => x != null)) t[n] = row; });
+      if (Object.keys(t).length) tees = t; }
+    S = Object.assign(fresh(), {players, tees, source:file.name, groupSize:S.groupSize || 12});
+    if (players.every(p => p.sheetGroup != null)){
+      // Workbook already has a Group column: use it, ranking column (if any) then index within each group
+      players.forEach(p => p.group = p.sheetGroup);
+      S.order = players.slice().sort((a,b) => a.group-b.group || (a.rank ?? 1e9)-(b.rank ?? 1e9) || byIdx(a,b)).map(p => p.id);
+    } else regroup();
+  }catch(e){ importError = e.message || "That file couldn’t be read."; }
+  save(); render();
+}
+
+// ---------- Actions
+function moveTo(id, pos){
+  const g = byId(id).group;
+  const o = S.order.filter(x => x !== id);
+  const peers = o.filter(x => byId(x).playing && byId(x).group === g);
+  pos = Math.max(1, Math.min(pos, peers.length + 1));
+  let slot;
+  if (peers[pos-1] !== undefined) slot = o.indexOf(peers[pos-1]);
+  else slot = peers.length ? o.indexOf(peers[peers.length-1]) + 1 : o.length;
+  o.splice(slot, 0, id); S.order = o;
+}
+function act(a, el){
+  const id = el.dataset.id;
+  if (a !== "clear") confirmClear = false;
+  if (a !== "reset") confirmReset = false;
+  if (a !== "regroup") confirmRegroup = false;
+  switch(a){
+    case "tab": S.tab = el.dataset.v; break;
+    case "gf": S.gf = Number(el.dataset.v); break;
+    case "up": case "down": { const r = myRank().get(id); if (r) moveTo(id, a === "up" ? r-1 : r+1); break; }
+    case "rankto": { const v = parseInt(el.value,10); if (v > 0) moveTo(id, v); break; }
+    case "group": { const p = byId(id); p.group = Number(el.value); moveTo(id, 1e6); break; } // joins the bottom of its new group
+    case "playing": byId(id).playing = el.checked; if (!el.checked) byId(id).status = null; break;
+    case "sortidx": S.order = S.players.slice().sort((a,b) => a.group-b.group || byIdx(a,b)).map(p => p.id); break;
+    case "regroup":
+      if (!confirmRegroup){ confirmRegroup = true; break; }
+      confirmRegroup = false; { const v = parseInt(document.getElementById("gsize").value,10); if (v > 0) S.groupSize = v; } regroup(); break;
+    case "add": {
+      const f = document.getElementById("af").value.trim(), l = document.getElementById("al").value.trim();
+      if (!f && !l) return;
+      const p = {id:"add"+Date.now(), first:f, last:l, index:num(document.getElementById("ai").value),
+        tee:document.getElementById("at").value.trim(), rank:null, playing:true, status:null,
+        group:Number(document.getElementById("ag").value) || 1};
+      S.players.push(p); S.order.push(p.id); moveTo(p.id, 1e6); announce(`Added ${nm(p)}`); break;
+    }
+    case "remove": S.players = S.players.filter(p => p.id !== id); S.order = S.order.filter(x => x !== id); S.log = S.log.filter(x => x !== id); break;
+    case "mine": case "taken":
+      byId(id).status = a; S.log.push(id);
+      announce(`${nm(byId(id))} ${a === "mine" ? "added to your team" : "marked as taken"}`); q = ""; break;
+    case "release": byId(id).status = null; S.log = S.log.filter(x => x !== id); break;
+    case "undo": { const x = S.log.pop(); if (x && byId(x)){ byId(x).status = null; announce(`Undid ${nm(byId(x))}`); } break; }
+    case "reset": if (!confirmReset){ confirmReset = true; break; } confirmReset = false; S.players.forEach(p => p.status = null); S.log = []; break;
+    case "clear": if (!confirmClear){ confirmClear = true; break; } confirmClear = false; localStorage.removeItem(KEY); S = fresh(); break;
+  }
+  save(); render();
+}
+const announce = m => document.getElementById("live").textContent = m;
+
+// ---------- Views
+function render(){
+  const f = document.activeElement && document.activeElement.id;
+  document.getElementById("mast").innerHTML = mastView();
+  document.getElementById("app").innerHTML = !S.players.length ? loadView() : S.tab === "draft" ? draftView() : rankView();
+  if (f){ const el = document.getElementById(f); if (el){ el.focus(); if (el.type === "search") el.setSelectionRange(el.value.length, el.value.length); } }
+}
+function mastView(){
+  const m = mine();
+  return `<div class="mast-in"><div class="mast-top"><h1>My Draft Board</h1>
+    ${S.players.length ? `<div class="tally num"><span><b>${m.length}</b>on my team</span><span><b>${fmtIdx(avgIdx(m))}</b>my avg index</span><span><b>${avail().length}</b>still available</span></div>` : ""}</div>
+    ${S.players.length ? `<div class="tabs" role="tablist">
+      <button role="tab" data-act="tab" data-v="rank" aria-selected="${S.tab !== "draft"}">My rankings</button>
+      <button role="tab" data-act="tab" data-v="draft" aria-selected="${S.tab === "draft"}">Draft day</button></div>` : `<div style="height:14px"></div>`}</div>`;
+}
+function loadView(){
+  return `<section class="panel"><h2>Load the roster</h2>
+    <p class="hint">Use the player ranking workbook (Players and Tees sheets) or a CSV with name, handicap index and tee. A Group column is used if present; otherwise golfers are split into groups by index. The file is read in your browser only.</p>
+    <label class="drop" id="drop"><input type="file" id="file" accept=".xlsx,.xls,.csv"><strong>Choose a spreadsheet</strong><span>or drop it here</span></label>
+    ${importError ? `<p class="err">${esc(importError)}</p>` : ""}</section>`;
+}
+function rankView(){
+  const rk = myRank(), gl = groupList(), all = ordered();
+  const gsel = p => `<select class="gsel" data-act="group" data-id="${esc(p.id)}" aria-label="Group for ${esc(nm(p))}">${gl.map(g => `<option value="${g}"${p.group === g ? " selected" : ""}>${g}</option>`).join("")}</select>`;
+  const section = g => {
+    const members = all.filter(p => p.group === g), act = members.filter(p => p.playing);
+    const idx = act.filter(p => p.index != null).map(p => p.index);
+    return `<div class="gsec"><div class="ghead"><h3>Group ${g}</h3><span class="num">${act.length} golfers${idx.length ? `, index ${fmtIdx(Math.min(...idx))} to ${fmtIdx(Math.max(...idx))}` : ""}</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Playing</th><th class="r">My rank</th><th>Golfer</th><th class="r">Index</th><th>Tee</th><th class="r">F / B</th><th>Group</th><th>Status</th><th><span class="sr">Move</span></th></tr></thead>
+      <tbody>${members.map(p => { const h = hcp(p), r = rk.get(p.id); return `<tr class="${p.playing ? "" : "off"}">
+        <td><input type="checkbox" data-act="playing" data-id="${esc(p.id)}" ${p.playing ? "checked" : ""} aria-label="${esc(nm(p))} is playing"></td>
+        <td class="r">${r ? `<input class="rkin num" type="number" min="1" value="${r}" data-act="rankto" data-id="${esc(p.id)}" aria-label="Rank for ${esc(nm(p))} in group ${g}">` : "–"}</td>
+        <td>${esc(nm(p))}${String(p.id).startsWith("add") ? ` <button class="x" data-act="remove" data-id="${esc(p.id)}">Delete</button>` : ""}</td>
+        <td class="r num">${fmtIdx(p.index)}</td><td>${teeChip(p.tee)}</td>
+        <td class="r num">${fmtHc(h.f)} / ${fmtHc(h.b)}</td>
+        <td>${gsel(p)}</td>
+        <td>${p.status ? `<span class="state ${p.status}">${p.status === "mine" ? "My team" : "Taken"}</span>` : ""}</td>
+        <td style="white-space:nowrap">${r ? `<button class="mv" data-act="up" data-id="${esc(p.id)}" aria-label="Move ${esc(nm(p))} up" ${r === 1 ? "disabled" : ""}>▲</button>
+          <button class="mv" data-act="down" data-id="${esc(p.id)}" aria-label="Move ${esc(nm(p))} down" ${r === act.length ? "disabled" : ""}>▼</button>` : ""}</td>
+      </tr>`; }).join("") || `<tr><td colspan="9" style="color:var(--muted)">No golfers in this group.</td></tr>`}</tbody></table></div></div>`;
+  };
+  return `<div class="stack"><section class="panel">
+    <h2>Rank each group your way</h2>
+    <p class="hint">Ranks are within each group: type a number or use the arrows. Change a golfer’s group with the Group menu, and uncheck anyone who isn’t playing.</p>
+    <details class="tools"><summary>Roster tools</summary>
+      <div class="actions" style="margin:8px 0">
+        <label for="gsize" style="font-weight:600;font-size:14px">Golfers per group</label>
+        <input id="gsize" class="inline-num num" type="number" min="1" value="${S.groupSize}">
+        <button class="btn" data-act="regroup">${confirmRegroup ? "Click again: this resets groups and ranks" : "Regroup by index"}</button>
+        <button class="btn" data-act="sortidx">Reset ranks to index order</button>
+      </div>
+      <p class="hint" style="margin:10px 0 0">Add a golfer who isn’t in the spreadsheet:</p>
+      <div class="addform">
+        <div><label for="af">First name</label><input id="af" type="text"></div>
+        <div><label for="al">Last name</label><input id="al" type="text"></div>
+        <div><label for="ai">Index</label><input id="ai" type="text" inputmode="decimal"></div>
+        <div><label for="at">Tee</label><input id="at" type="text" list="teelist"><datalist id="teelist">${Object.keys(S.tees).map(t => `<option value="${esc(t)}">`).join("")}</datalist></div>
+        <div><label for="ag">Group</label><select id="ag">${gl.map(g => `<option>${g}</option>`).join("")}</select></div>
+        <div><button class="btn" data-act="add">Add golfer</button></div>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">Load a new file<input type="file" id="file" accept=".xlsx,.xls,.csv" class="sr"></label>
+        <button class="btn warn" data-act="clear">${confirmClear ? "Click again to clear everything" : "Clear all data"}</button>
+      </div>
+    </details>
+    ${importError ? `<p class="err">${esc(importError)}</p>` : ""}
+    ${gl.map(section).join("")}
+  </section></div>`;
+}
+function draftView(){
+  const rk = myRank(), gl = groupList(), av = avail();
+  if (S.gf && !gl.includes(S.gf)) S.gf = 0;
+  const shown = av.filter(p => (!S.gf || p.group === S.gf) && (!q || nm(p).toLowerCase().includes(q.toLowerCase())))
+                  .sort((a,b) => a.group - b.group || rk.get(a.id) - rk.get(b.id));
+  const m = mine(), t = taken();
+  const row = p => { const h = hcp(p); return `<li>
+    <span class="rk num">${rk.get(p.id)}</span>
+    <span><span class="nm"><span class="gtag">G${p.group}</span>${esc(nm(p))}</span><span class="sub num">${teeChip(p.tee)} front ${fmtHc(h.f)}, back ${fmtHc(h.b)}</span></span>
+    <span class="ix num">${fmtIdx(p.index)}</span>
+    <span class="pickbtns"><button class="b-mine" data-act="mine" data-id="${esc(p.id)}">My pick</button><button class="b-taken" data-act="taken" data-id="${esc(p.id)}">Taken</button></span></li>`; };
+  const best = gl.map(g => { const b = av.find(p => p.group === g);
+    return `<div class="next"><small>Group ${g} best available</small><strong>${b ? esc(nm(b)) : "None left"}</strong>${b ? `<small class="num">My #${rk.get(b.id)}, index ${fmtIdx(b.index)}</small>` : ""}</div>`; }).join("");
+  const plist = (list, label) => list.length ? `<ul class="plist">${list.slice().sort((a,b)=>a.group-b.group||rk.get(a.id)-rk.get(b.id)).map(p => `<li><span><span class="gtag">G${p.group}</span>${esc(nm(p))} <small class="num">${fmtIdx(p.index)}, my #${rk.get(p.id)}</small></span><button class="x" data-act="release" data-id="${esc(p.id)}">${label}</button></li>`).join("")}</ul>` : "";
+  const perGroup = list => gl.map(g => `G${g}: ${list.filter(p => p.group === g).length}`).join(", ");
+  return `<div class="room"><section class="panel">
+    <div class="bestgrid">${best}</div>
+    <p class="hint">Tap My pick when you draft someone, or Taken when the other captain does.</p>
+    <div class="seg" role="group" aria-label="Show group">
+      <button data-act="gf" data-v="0" aria-pressed="${!S.gf}">All groups</button>
+      ${gl.map(g => `<button data-act="gf" data-v="${g}" aria-pressed="${S.gf === g}">Group ${g}</button>`).join("")}</div>
+    <label for="q" class="sr">Find a golfer</label><input type="search" id="q" placeholder="Find a golfer" value="${esc(q)}" style="margin-bottom:6px">
+    <ul class="avail">${shown.map(row).join("") || `<li style="display:block;color:var(--muted)">No available golfers here.</li>`}</ul>
+    <div class="actions" style="margin-top:14px">
+      <button class="btn" data-act="undo" ${S.log.length ? "" : "disabled"}>Undo last</button>
+      <button class="btn warn" data-act="reset">${confirmReset ? "Click again to reset the draft" : "Reset draft"}</button></div>
+  </section>
+  <div class="stack">
+    <section class="team"><h2>My team</h2><p class="hint num">${m.length} golfers, average index ${fmtIdx(avgIdx(m))}${m.length ? ` (${perGroup(m)})` : ""}</p>
+      ${plist(m, "Remove") || `<p class="empty">Your picks show up here.</p>`}</section>
+    <section class="panel"><h2>Taken by others</h2><p class="hint num">${t.length} golfers, average index ${fmtIdx(avgIdx(t))}</p>
+      ${plist(t, "Put back") || `<p class="empty">Golfers you mark as taken show up here.</p>`}</section>
+  </div></div>`;
+}
+
+// ---------- Events
+document.addEventListener("click", e => { const b = e.target.closest("button[data-act]"); if (b && !b.disabled) act(b.dataset.act, b); });
+document.addEventListener("change", e => {
+  const el = e.target;
+  if (el.id === "file" && el.files[0]) return importFile(el.files[0]);
+  if (el.dataset.act) act(el.dataset.act, el);
+});
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset && e.target.dataset.act === "rankto") e.target.blur(); });
+document.addEventListener("input", e => { if (e.target.id === "q"){ q = e.target.value; render(); } });
+["dragover","dragenter"].forEach(ev => document.addEventListener(ev, e => { const d = e.target.closest && e.target.closest("#drop"); if (d){ e.preventDefault(); d.classList.add("over"); } }));
+document.addEventListener("dragleave", e => { const d = e.target.closest && e.target.closest("#drop"); if (d) d.classList.remove("over"); });
+document.addEventListener("drop", e => { const d = e.target.closest && e.target.closest("#drop"); if (d){ e.preventDefault(); d.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) importFile(f); } });
+render();
+</script>
+</body>
+</html>
