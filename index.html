@@ -190,11 +190,12 @@ function avgIdx(list){ const l = list.filter(p => p.index != null); return l.len
 const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g,"");
 function col(r, names){ for (const k of Object.keys(r)) if (names.includes(norm(k))) return r[k]; }
 const num = v => { if (v === "" || v == null) return null; const n = Number(String(v).trim().replace(/^\+/,"-")); return isFinite(n) ? n : null; };
-async function importFile(file){
+const importFile = async file => importBuffer(await file.arrayBuffer(), file.name);
+async function importBuffer(buf, fileName){
   importError = "";
   try{
     if (typeof XLSX === "undefined") throw new Error("The spreadsheet reader didn’t load. Check your connection and reload.");
-    const wb = XLSX.read(await file.arrayBuffer(), {type:"array"});
+    const wb = XLSX.read(buf, {type:"array"});
     const sn = wb.SheetNames.find(n => norm(n) === "players") || wb.SheetNames[0];
     const players = [];
     XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:""}).forEach((r,i) => {
@@ -221,7 +222,7 @@ async function importFile(file){
         const row = {fs:v("frontslope"),fr:v("frontrating"),fp:v("frontpar"),bs:v("backslope"),br:v("backrating"),bp:v("backpar")};
         if (n && Object.values(row).every(x => x != null)) t[n] = row; });
       if (Object.keys(t).length) tees = t; }
-    S = Object.assign(fresh(), {players, tees, source:file.name, groupSize:S.groupSize || 12});
+    S = Object.assign(fresh(), {players, tees, source:fileName, groupSize:S.groupSize || 12});
     if (players.every(p => p.sheetGroup != null)){
       // Workbook already has a Group column: use it, ranking column (if any) then index within each group
       players.forEach(p => p.group = p.sheetGroup);
@@ -273,7 +274,7 @@ function act(a, el){
     case "release": byId(id).status = null; S.log = S.log.filter(x => x !== id); break;
     case "undo": { const x = S.log.pop(); if (x && byId(x)){ byId(x).status = null; announce(`Undid ${nm(byId(x))}`); } break; }
     case "reset": if (!confirmReset){ confirmReset = true; break; } confirmReset = false; S.players.forEach(p => p.status = null); S.log = []; break;
-    case "clear": if (!confirmClear){ confirmClear = true; break; } confirmClear = false; localStorage.removeItem(KEY); S = fresh(); break;
+    case "clear": if (!confirmClear){ confirmClear = true; break; } confirmClear = false; localStorage.removeItem(KEY); S = fresh(); autoLoad(); break;
   }
   save(); render();
 }
@@ -396,7 +397,21 @@ document.addEventListener("input", e => { if (e.target.id === "q"){ q = e.target
 ["dragover","dragenter"].forEach(ev => document.addEventListener(ev, e => { const d = e.target.closest && e.target.closest("#drop"); if (d){ e.preventDefault(); d.classList.add("over"); } }));
 document.addEventListener("dragleave", e => { const d = e.target.closest && e.target.closest("#drop"); if (d) d.classList.remove("over"); });
 document.addEventListener("drop", e => { const d = e.target.closest && e.target.closest("#drop"); if (d){ e.preventDefault(); d.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) importFile(f); } });
+
+// If the page is hosted next to a roster file (roster.xlsx or roster.csv), load it automatically
+// on first visit so nobody has to upload anything. Saved rankings in this browser take priority.
+const ROSTER_FILES = ["roster.xlsx", "roster.csv"];
+async function autoLoad(){
+  if (S.players.length || location.protocol === "file:") return;
+  for (const f of ROSTER_FILES){
+    try{
+      const res = await fetch(f, {cache:"no-cache"});
+      if (res.ok){ await importBuffer(await res.arrayBuffer(), f); return; }
+    }catch(e){ /* not found or blocked: fall back to the upload screen */ }
+  }
+}
 render();
+autoLoad();
 </script>
 </body>
 </html>
